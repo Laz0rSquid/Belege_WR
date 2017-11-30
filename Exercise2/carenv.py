@@ -6,20 +6,28 @@ class JacksCarRentalEnvironment(object):
         done = False
         reward = 0
         info = ''
+
+        if(np.min(observation) <= 0):
+            done = True
+            info = 'No cars!'
         
         if(not done):
-            cars_requested_1 = np.random.poisson(3, 1)
-            cars_requested_2 = np.random.poisson(4, 1)
+            cars_requested_1 = np.random.poisson(3)
+            cars_requested_2 = np.random.poisson(4)
             observation[0] = observation[0] - cars_requested_1
             observation[1] = observation[1] - cars_requested_2
 
-        if(np.min(observation) <= 0):
+        if(np.min(observation) <= 0 and not done):
             done = True
             info = 'Not enought cars to fulfill requests!'
 
         if (not done):
-            reward = (cars_requested_1 + cars_requested_2) * 10
-
+            reward = (cars_requested_1 + cars_requested_2) * 10 - (abs(action) * 2)
+        else:
+            reward = -(abs(action) * 2)
+            observation[0] = observation[0] - action
+            observation[1] = observation[1] + action
+        
         if(not done):
             if(observation[0] - action < 0 and observation[1] + action < 0):
                 done = True
@@ -28,14 +36,13 @@ class JacksCarRentalEnvironment(object):
                 observation[0] = observation[0] - action
                 observation[1] = observation[1] + action
 
-        if(not done):
-            cars_returned_1 = np.random.poisson(3, 1)
-            cars_returned_2 = np.random.poisson(2, 1)
-            observation[0] = observation[0] - cars_requested_1
-            observation[1] = observation[1] - cars_requested_2
-            np.clip(observation, None, 20)
+        cars_returned_1 = np.random.poisson(3)
+        cars_returned_2 = np.random.poisson(2)
+        observation[0] = observation[0] + cars_returned_1
+        observation[1] = observation[1] + cars_returned_2
+        np.clip(observation, None, 20)
 
-        return observation, reward, done, info
+        return observation, reward, False, info
 
     def reset(self, param=10):
         global observation
