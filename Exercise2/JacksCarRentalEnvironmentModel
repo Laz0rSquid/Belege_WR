@@ -1,0 +1,268 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "class JacksCarRentalEnvironmentModel(JacksCarRentalEnvironment):\n",
+    "    \n",
+    "    def get_transition_probabilities_and_expected_reward(self, state, action):\n",
+    "        \"\"\"\n",
+    "            Compute the $p(s', r\\mid s,a)$\n",
+    "            Parameters\n",
+    "            ----------\n",
+    "            old_state: tuple of two ints\n",
+    "                the state (cars_at_A, cars_at_B)\n",
+    "            action: int\n",
+    "                nigthly movements of the cars as a int between -5 to 5, e.g.: \n",
+    "                action +3: move three cars from A to B. \n",
+    "                action -2: move two cars from B to A.\n",
+    "                \n",
+    "            Returns\n",
+    "            -------\n",
+    "            numpy array (2d - float): mapping from (new) states to probabilities\n",
+    "                index first dimension: cars at A\n",
+    "                index second dimension: cars at B\n",
+    "                value: probability  \n",
+    "            float:  expected reward for the state-action pair\n",
+    "        \"\"\"\n",
+    "        #assert type(action) == int\n",
+    "        assert np.abs(action) <=5\n",
+    "        # first we move the cars in the night\n",
+    "        num_states_for_a_location = type(self).MAX_CAPACITY + 1\n",
+    "            \n",
+    "        state = self._nightly_moves(state, action)\n",
+    "    \n",
+    "        expected_reward = - type(self).TRANSFER_COST * np.abs(action)\n",
+    "        expected_reward += self._expected_reward_rent(state)\n",
+    "        \n",
+    "        transition_probabilities = self._rent_transition_probabilities(state)\n",
+    "        transition_probabilities = self._returns_transition_probabilities(transition_probabilities)\n",
+    "        return transition_probabilities, expected_reward  \n",
+    "        \n",
+    "        \n",
+    "    def _nightly_moves(self, state, action):\n",
+    "        \n",
+    "        cars_at_A = state[0]\n",
+    "        cars_at_B = state[1]\n",
+    "        if action > 0:\n",
+    "            cars_moved = min(action, cars_at_A)\n",
+    "        else:\n",
+    "            cars_moved = max(action, -cars_at_B)\n",
+    "        \n",
+    "        cars_at_A = min(cars_at_A - cars_moved, type(self).MAX_CAPACITY)\n",
+    "        cars_at_B = min(cars_at_B + cars_moved, type(self).MAX_CAPACITY)\n",
+    "        return [cars_at_A, cars_at_B]\n",
+    "        \n",
+    "    def _expected_reward_rent(self, state):\n",
+    "        expected_reward_rent = 0.\n",
+    "        m = type(self).MAX_CAPACITY+1\n",
+    "        request_mu = type(self).REQUEST_RATE\n",
+    "        for i in (0,1):\n",
+    "            cars_at_loc = state[i]\n",
+    "            rv = scipy.stats.poisson(request_mu[i])\n",
+    "            rent_prob = (rv.pmf(range(m)))\n",
+    "            logger.debug(rent_prob)\n",
+    "            rent_prob[cars_at_loc] = rent_prob[cars_at_loc:].sum()\n",
+    "            rent_prob[cars_at_loc+1:] = 0. \n",
+    "            logger.debug(rent_prob)\n",
+    "            expected_reward_rent += np.dot(np.arange(len(rent_prob)), rent_prob) * type(self).RENTAL_INCOME\n",
+    "        return expected_reward_rent\n",
+    "        \n",
+    "    def _rent_transition_probabilities(self, state):\n",
+    "        \n",
+    "        num_states_for_a_location = type(self).MAX_CAPACITY + 1\n",
+    "        m = 15\n",
+    "        n = num_states_for_a_location + 2*m\n",
+    "        p_  = [np.zeros(n), np.zeros(n)]\n",
+    "        request_mu = type(self).REQUEST_RATE\n",
+    "        \n",
+    "        for i in (0,1):\n",
+    "            rv = scipy.stats.poisson(request_mu[i])\n",
+    "            cars_at_loc = state[i]\n",
+    "            x = cars_at_loc + m + 1     \n",
+    "            rent_prob = (rv.pmf(range(x)))\n",
+    "            assert state[i]-x+m+1 == 0\n",
+    "            p_[i][0:cars_at_loc+m+1] = rent_prob[::-1]\n",
+    "            p_[i][m] = p_[i][:m+1].sum()\n",
+    "            p_[i] = p_[i][m:-m]\n",
+    "        return p_\n",
+    "    \n",
+    "    def _returns_transition_probabilities(self, state_probalility):\n",
+    "        \n",
+    "        num_states_for_a_location = type(self).MAX_CAPACITY + 1\n",
+    "        m=11\n",
+    "        n = num_states_for_a_location + 2*m\n",
+    "        returns_mu = type(self).RETURN_RATE\n",
+    "        p_  = [np.zeros(num_states_for_a_location), np.zeros(num_states_for_a_location)]\n",
+    "        for i in (0,1):\n",
+    "            rv = scipy.stats.poisson(returns_mu[i])\n",
+    "            logger.debug(len(state_probalility[i]))\n",
+    "            for cars_at_loc in range(len(state_probalility[i])):\n",
+    "                p = np.zeros(n)\n",
+    "                logger.debug(p.shape)\n",
+    "                x = num_states_for_a_location - cars_at_loc + m - 1     \n",
+    "                return_prob = (rv.pmf(range(x)))\n",
+    "                logger.debug (p[cars_at_loc+m:-1].shape)\n",
+    "                p[cars_at_loc+m:-1] = return_prob\n",
+    "                logger.debug(return_prob)\n",
+    "                p[num_states_for_a_location+m-1] = p[num_states_for_a_location+m-1:].sum()\n",
+    "                p = p[m:-m]\n",
+    "                logger.debug(p)\n",
+    "                logger.debug(p.sum())\n",
+    "                p_[i] += p * state_probalility[i][cars_at_loc]\n",
+    "        return p_\n",
+    "    "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "from mpl_toolkits.mplot3d import Axes3D\n",
+    "from matplotlib import cm\n",
+    "\n",
+    "def plot3d_over_states(f, zlabel=\"\", ):\n",
+    "    A = np.arange(0, MAX_CAPACITY+1)\n",
+    "    B = np.arange(0, MAX_CAPACITY+1)\n",
+    "    # B, A !!!\n",
+    "    B, A = np.meshgrid(B, A)\n",
+    "    V = f.reshape(MAX_CAPACITY+1,-1)\n",
+    "    fig = plt.figure()\n",
+    "    ax = fig.add_subplot(111, projection='3d')\n",
+    "    #ax = fig.gca(projection='3d')\n",
+    "    #surf = ax.plot_surface(A, B, V, rstride=1, cstride=1, cmap=cm.coolwarm,\n",
+    "    #                   linewidth=0, antialiased=False)\n",
+    "    #fig.colorbar(surf, shrink=0.5, aspect=5)\n",
+    "    ax.scatter(A, B, V, c='b', marker='.')\n",
+    "    ax.set_xlabel(\"cars at A\")\n",
+    "    ax.set_ylabel(\"cars at B\")\n",
+    "    ax.set_zlabel(zlabel)\n",
+    " \n",
+    "    #ax.view_init(elev=10., azim=10)\n",
+    "    \n",
+    "    plt.show()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "def policy_evaluation:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "def policy_improvement:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "def plot_policy(policy):\n",
+    "    MAX_CAPACITY = 20\n",
+    "    A = np.arange(0, MAX_CAPACITY+1)\n",
+    "    B = np.arange(0, MAX_CAPACITY+1)\n",
+    "    A, B = np.meshgrid(A, B)\n",
+    "    Po = policy.reshape(MAX_CAPACITY+1,-1)\n",
+    "    levels = range(-5,6,1)\n",
+    "    plt.figure(figsize=(7,6))\n",
+    "    CS = plt.contourf(A, B, Po, levels)\n",
+    "    cbar = plt.colorbar(CS)\n",
+    "    cbar.ax.set_ylabel('actions')\n",
+    "    #plt.clabel(CS, inline=1, fontsize=10)\n",
+    "    plt.title('Policy')\n",
+    "    plt.xlabel(\"cars at B\")\n",
+    "    plt.ylabel(\"cars at A\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "plot3d_over_states(V, 'v')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "plot_policy(policy)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "plot3d_over_states(V)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "plot_policy(policy)"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 2",
+   "language": "python",
+   "name": "python2"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 2
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython2",
+   "version": "2.7.12"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
